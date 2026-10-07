@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>B860AV 机顶盒 → 家庭影院 KTV 点歌台 · 安装教程</title>
+<style>
+ body{font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+      line-height:1.75;color:#1c2333;background:#f6f8fc;margin:0;padding:0}
+ .wrap{max-width:820px;margin:0 auto;padding:32px 20px 80px}
+ h1{font-size:26px;margin:8px 0 4px}
+ h2{font-size:19px;margin:30px 0 8px;padding-left:10px;border-left:4px solid #0aa88a}
+ code{background:#eef1f7;padding:2px 6px;border-radius:5px;font-size:14px}
+ pre{background:#0f1220;color:#e7ecf7;padding:14px 16px;border-radius:10px;overflow:auto;font-size:13.5px}
+ pre code{background:none;color:inherit;padding:0}
+ .tip{background:#eafaf6;border:1px solid #bfe9df;padding:10px 14px;border-radius:10px;margin:12px 0}
+ .warn{background:#fff5e8;border:1px solid #ffdcb0;padding:10px 14px;border-radius:10px;margin:12px 0}
+ table{border-collapse:collapse;width:100%;margin:10px 0}
+ th,td{border:1px solid #dde3ee;padding:8px 10px;text-align:left;font-size:14.5px}
+ th{background:#eef1f7}
+ .brand{color:#0aa88a;font-weight:600}
+</style>
+</head>
+<body><div class="wrap">
+<h1>B860AV 机顶盒 → 家庭影院 KTV 点歌台 · 安装教程</h1>
+<p>把吃灰的安卓机顶盒变成一台<b>家用 KTV 点歌台</b>：<b>开机直进点歌大屏</b>，本地 U 盘歌曲 + 在线搜歌，遥控器 / 鼠标 / 手机都能点歌。实机：<b>B860AV1.1-T2</b>（ZX296716 / Android 4.4.2 / armv7）。<b>不刷机</b>，随时可还原。</p>
+
+<h2>0. 准备</h2>
+<ul>
+<li>盒子<b>已 root</b>，能开 <b>ADB</b> 或进 root shell。</li>
+<li>盒子与手机/电脑在<b>同一局域网</b>（在线点歌 + 手机点歌需要）。</li>
+<li>本安装包内的：<code>ktv.apk</code>、<code>ktvnet.py</code>、<code>ktvnet-watch.sh</code>、<code>一键安装.sh</code>。</li>
+</ul>
+<p>把整个安装目录拷到盒子，如 <code>/sdcard/ktv-install/</code>。</p>
+
+<h2>1. 装点歌台 App</h2>
+<pre><code>pm install -r /sdcard/ktv-install/ktv.apk</code></pre>
+
+<h2>2. 设为唯一桌面 → 开机直进</h2>
+<p>Android 4.4 <b>没有</b> <code>pm set-home-activity</code>，做法是<b>卸载旧桌面</b>，让本 App 成为默认桌面：</p>
+<pre><code>pm list packages | grep -i launcher   # 找旧桌面包名
+pm uninstall &lt;旧桌面包名&gt;</code></pre>
+<div class="tip">旧桌面 apk 建议先备份：<code>cp /data/app/&lt;包名&gt;-*.apk /sdcard/desktop-backup.apk</code></div>
+
+<h2>3. 部署在线点歌后端（Linux 子系统 / chroot）</h2>
+<pre><code>R=/data/linux
+cp ktvnet.py        $R/root/ktvnet.py
+cp ktvnet-watch.sh  $R/root/ktvnet-watch.sh
+chmod +x            $R/root/ktvnet-watch.sh</code></pre>
+<p>在盒子<b>开机脚本</b>里拉起守护：</p>
+<pre><code>chroot $R /sbin/start-stop-daemon --start --background --make-pidfile \
+  --pidfile /run/ktvnet.pid --exec /bin/sh -- /root/ktvnet-watch.sh 2>/dev/null</code></pre>
+<div class="warn">⚠️ <b>关键坑</b>：开机由 start-stop-daemon 拉起时 <b>PATH 不含 /usr/bin</b> → 脚本里必须用<b>绝对路径 <code>/usr/bin/python3</code></b>，否则报 <code>nohup: can't execute 'python3'</code> 静默失败。</div>
+
+<h2>4. 开机兜底（可选，推荐）</h2>
+<p>若有 <code>/data/bootfix.sh</code> 这类兜底脚本，把里面的桌面包名改成 <code>com.openhardwarelab.ktv</code>。</p>
+
+<h2>5. 重启</h2>
+<p>重启后应<b>直接进入 KTV 点歌台</b>（默认「在线点歌」）。</p>
+
+<h2>6. 放歌 / 放电影</h2>
+<ul>
+<li>内部存储：<code>/sdcard/ktv/</code></li>
+<li>U 盘：任意位置（自动识别可移动盘，插拔自动重扫）</li>
+<li>命名：<code>编号-歌名-歌手.mp4</code>；伴奏/原唱加 <code>-伴奏</code>/<code>-原唱</code>；同名 <code>.lrc</code> 自动歌词</li>
+<li>U 盘视频也会进「本地曲库」，点开全屏播放</li>
+</ul>
+
+<h2>7. 操作</h2>
+<table>
+<tr><th>键</th><th>作用</th></tr>
+<tr><td>↑ ↓</td><td>顶栏 / 快捷按钮 / 曲库 / 已点 之间移动</td></tr>
+<tr><td>← →</td><td>行内选择（切模式 / 选 热门·戏曲·儿歌·歌手 / 曲库⇄已点）</td></tr>
+<tr><td>确定</td><td>进入 / 点歌 / 播放</td></tr>
+<tr><td>数字·字母</td><td>搜索</td></tr>
+<tr><td>菜单</td><td>本地=重扫曲库</td></tr>
+</table>
+<p>播放中：确定=暂停 · ←=重唱 · →=切歌 · ↑↓=音量 · 菜单=原唱/伴奏 · 返回=回点歌台。<b>鼠标点击</b>也能点歌；<b>可拖动进度条</b>在屏幕中下部。</p>
+
+<h2>8. 手机扫码点歌</h2>
+<p>首页<b>右下角二维码</b>，手机（同一 WiFi）扫码 → 浏览器点歌：本地曲库 / 在线点歌 切换、搜歌、点歌（大屏即播），底部显示「正在播放 / 已点 N 首」。</p>
+
+<h2>9. 还原</h2>
+<pre><code>pm uninstall com.openhardwarelab.ktv
+pm install /sdcard/desktop-backup.apk</code></pre>
+<p>并去掉开机脚本里加的 ktvnet 自启行。</p>
+
+<hr>
+<p style="color:#667;font-size:13px">OpenHW Lab · 让闲置硬件重获新生 — <span class="brand">www.openhwlab.com</span></p>
+</div></body></html>

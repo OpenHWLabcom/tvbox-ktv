@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.openhardwarelab.ktv"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+  <uses-sdk android:minSdkVersion="17" android:targetSdkVersion="19" />
+
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+
+  <application
+      android:label="KTV点歌台"
+      android:icon="@android:drawable/sym_def_app_icon"
+      android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+
+    <activity
+        android:name=".MainActivity"
+        android:label="KTV点歌台"
+        android:launchMode="singleTask"
+        android:screenOrientation="landscape"
+        android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize"
+        android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.HOME" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+    </activity>
+
+    <activity
+        android:name=".PlayerActivity"
+        android:label="播放"
+        android:launchMode="singleTop"
+        android:screenOrientation="landscape"
+        android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize"
+        android:exported="false" />
+
+    <!-- 兼容旧脚本/外部遥控: am start .OcActivity -> 主界面 -->
+    <activity-alias
+        android:name=".OcActivity"
+        android:targetActivity=".MainActivity"
+        android:exported="true" />
+
+  </application>
+</manifest>

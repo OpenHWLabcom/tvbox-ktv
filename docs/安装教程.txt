@@ -1,0 +1,55 @@
+B860AV 机顶盒 → 家庭影院 KTV 点歌台 · 安装教程（纯文本版）
+==========================================================
+实机：B860AV1.1-T2（ZX296716 / Android 4.4.2 / armv7）。不刷机，随时可还原。
+
+0. 准备
+ - 盒子已 root，能开 ADB 或进 root shell。
+ - 盒子与手机/电脑同一局域网。
+ - 安装包内：ktv.apk / ktvnet.py / ktvnet-watch.sh / 一键安装.sh
+ - 整个目录拷到盒子，如 /sdcard/ktv-install/
+
+1. 装 App
+   pm install -r /sdcard/ktv-install/ktv.apk
+
+2. 设为唯一桌面（开机直进）
+   Android 4.4 没有 pm set-home-activity → 卸载旧桌面即可：
+     pm list packages | grep -i launcher
+     pm uninstall <旧桌面包名>
+   （旧桌面 apk 先备份：cp /data/app/<包名>-*.apk /sdcard/desktop-backup.apk）
+
+3. 部署在线点歌后端（子系统/chroot）
+   R=/data/linux
+   cp ktvnet.py        $R/root/ktvnet.py
+   cp ktvnet-watch.sh  $R/root/ktvnet-watch.sh
+   chmod +x            $R/root/ktvnet-watch.sh
+   开机脚本里拉起守护：
+     chroot $R /sbin/start-stop-daemon --start --background --make-pidfile \
+       --pidfile /run/ktvnet.pid --exec /bin/sh -- /root/ktvnet-watch.sh 2>/dev/null
+   ⚠ 关键坑：开机 start-stop-daemon 拉起时 PATH 不含 /usr/bin → 脚本里必须用绝对路径
+     /usr/bin/python3，否则会静默失败（nohup: can't execute 'python3'）。
+
+4. 开机兜底（可选）：若有 /data/bootfix.sh，把桌面包名改成 com.openhardwarelab.ktv
+
+5. 重启 → 应直接进 KTV 点歌台（默认「在线点歌」）。
+
+6. 放歌/放电影
+   - 内部：/sdcard/ktv/ ；U 盘：任意位置（自动识别，插拔自动重扫）
+   - 命名：编号-歌名-歌手.mp4 ；伴奏/原唱加 -伴奏 / -原唱 ；同名 .lrc 自动歌词
+   - U 盘视频也会进「本地曲库」，点开全屏播放
+
+7. 操作（遥控器/键盘）
+   ↑↓ 顶栏/快捷按钮/曲库/已点 之间移动；←→ 行内选择；确定 进入/点歌/播放；
+   数字字母 搜索；菜单 本地=重扫曲库。
+   播放中：确定=暂停 ←=重唱 →=切歌 ↑↓=音量 菜单=原唱/伴奏 返回=回点歌台。
+   鼠标点击也能点歌；可拖动进度条在屏幕中下部。
+
+8. 手机扫码点歌
+   首页右下角二维码 → 手机（同一 WiFi）扫码 → 浏览器点歌（本地/在线、搜歌、点歌、
+   底部看 正在播放/已点N首）。
+
+9. 还原
+   pm uninstall com.openhardwarelab.ktv
+   pm install /sdcard/desktop-backup.apk
+   并去掉开机脚本里加的 ktvnet 自启行。
+
+OpenHW Lab · 让闲置硬件重获新生 — www.openhwlab.com
