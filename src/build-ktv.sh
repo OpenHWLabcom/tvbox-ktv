@@ -2,7 +2,7 @@
 # 构建 KTV 点歌台 APK (com.openhardwarelab.ktv)
 set -e
 cd "$(dirname "$0")"
-SRC=$HOME/.openclaw/workspace/ktv/android/ktv
+SRC=$HOME/ktv/android/ktv
 PKG=com/openhardwarelab/ktv
 KS=ktv.keystore
 export JAVA_HOME=$PWD/jdk8u504-b01

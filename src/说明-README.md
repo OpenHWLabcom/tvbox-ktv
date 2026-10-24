@@ -3,7 +3,7 @@
 把机顶盒改成 **家庭影院 KTV 点歌台**：开机直进点歌界面，遥控器/键盘/鼠标都能操作。
 **两种模式**：**本地曲库** + **在线点歌**（联网搜歌，走盒子本机代理）。**开机默认进「在线点歌」**（顶部可切「本地曲库」）。
 
-当前部署机器：**B860AV1.1-T2**（ZTE ZX296716 / Android 4.4.2 / API19 / armeabi-v7a），盒子 IP `192.168.31.161`。
+当前部署机器：**B860AV1.1-T2**（ZTE ZX296716 / Android 4.4.2 / API19 / armeabi-v7a），盒子 IP `192.168.1.161`。
 
 ## 界面 / 操作
 
@@ -61,10 +61,10 @@
 
 ```bash
 cd ~/android-build && ./build-ktv.sh     # 需 jdk8/aapt81/android-4.4.2 工具链
-~/.openclaw/workspace/ktv/deploy.sh      # 一键 构建+推送+安装+重开
+~/ktv/deploy.sh      # 一键 构建+推送+安装+重开
 ```
 
-源码：`~/.openclaw/workspace/ktv/android/ktv/`（包 `com.openhardwarelab.ktv`）。
+源码：`~/ktv/android/ktv/`（包 `com.openhardwarelab.ktv`）。
 
 ## 盒子侧改造记录（2026-10-07）
 
