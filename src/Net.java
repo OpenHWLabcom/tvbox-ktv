@@ -18,7 +18,7 @@ public class Net {
 
     public static List<Song> search(String kw) {
         try {
-            String u = BASE + "/search?n=24&q=" + URLEncoder.encode(kw, "UTF-8");
+            String u = BASE + "/search?n=40&q=" + URLEncoder.encode(kw, "UTF-8");
             return parse(get(u, 20000));
         } catch (Exception e) {
             return new ArrayList<Song>();
@@ -26,7 +26,7 @@ public class Net {
     }
 
     public static List<Song> hot() {
-        return parse(get(BASE + "/hot?n=40", 25000));
+        return parse(get(BASE + "/hot?n=80", 40000));
     }
 
     private static List<Song> parse(String body) {
@@ -38,13 +38,15 @@ public class Net {
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.getJSONObject(i);
                 if (!o.optBoolean("playable", false)) continue;   // 只留可播的
-                Song s = new Song("net:" + o.optString("id"));
+                String src = o.optString("src", "ne");
+                String sid = o.optString("id");
+                Song s = new Song("net:" + src + ":" + sid);
                 s.online = true;
                 s.name = o.optString("name");
                 s.artist = o.optString("artist");
-                int id = o.optInt("id");
-                s.netPlay = BASE + "/play?id=" + id;
-                s.netLrc = BASE + "/lrc?id=" + id;
+                s.netPlay = BASE + "/play?src=" + src + "&id=" + sid;
+                s.netLrc = BASE + "/lrc?src=" + src + "&id=" + sid;
+                s.srcTag = "ne".equals(src) ? "网易" : ("kw".equals(src) ? "酷我" : "酷狗");
                 out.add(s);
             }
         } catch (Exception e) {

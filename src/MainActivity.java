@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
@@ -55,6 +57,12 @@ public class MainActivity extends Activity {
         }
     };
     private TextView tvQuery, tvHint, tvQueueHeader, tvLocal, tvOnline;
+    private LinearLayout kbBox;
+    private TextView kbFirst;
+    private LinearLayout candRow;
+    private String pyBuf = "";
+    private volatile String[] pyLines = new String[0];
+    private volatile boolean pyReady = false;
     private SongAdapter sAdapter;
     private QueueAdapter qAdapter;
 
@@ -72,6 +80,7 @@ public class MainActivity extends Activity {
     };
 
     @Override protected void onCreate(Bundle b) {
+        new Thread(new Runnable() { public void run() { loadPy(); } }).start();
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         buildUi();
@@ -102,21 +111,33 @@ public class MainActivity extends Activity {
     private void addQr() {
         if (rootF == null) return;
         final String url = "http://" + KtvServer.localIp() + ":8081/";
-        int S = dp(132);
+        int S = dp(220);
         android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(
                 S, S, android.graphics.Bitmap.Config.ARGB_8888);
         android.graphics.Canvas cv = new android.graphics.Canvas(bmp);
         cv.drawColor(Color.WHITE);
-        try { Qr.draw(cv, Qr.get(url), 0, 0, S, Color.BLACK, Color.TRANSPARENT); } catch (Exception e) {}
+        try { Qr.draw(cv, Qr.get(url), 0, 0, S, Color.BLACK, Color.WHITE); } catch (Exception e) {}
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setBackgroundColor(Color.WHITE);
+        box.setPadding(dp(8), dp(8), dp(8), dp(6));
         ImageView iv = new ImageView(this);
         iv.setImageBitmap(bmp);
-        iv.setBackgroundColor(Color.argb(235, 255, 255, 255));
-        iv.setPadding(dp(6), dp(6), dp(6), dp(6));
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(S + dp(12), S + dp(12));
+        iv.setScaleType(ImageView.ScaleType.FIT_XY);
+        box.addView(iv, new LinearLayout.LayoutParams(S, S));
+        TextView tv = new TextView(this);
+        tv.setText("手机扫码点歌\n" + url);
+        tv.setTextColor(Color.rgb(20, 20, 20));
+        tv.setTextSize(12);
+        tv.setGravity(Gravity.CENTER);
+        box.addView(tv);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.gravity = Gravity.BOTTOM | Gravity.RIGHT;
-        lp.rightMargin = dp(16);
-        lp.bottomMargin = dp(48);
-        rootF.addView(iv, lp);
+        lp.rightMargin = dp(10);
+        lp.bottomMargin = dp(10);
+        rootF.addView(box, lp);
         Log.d("KTV", "qr url=" + url);
     }
 
@@ -147,10 +168,51 @@ public class MainActivity extends Activity {
                 ui.post(new Runnable() { public void run() { addAndMaybePlay(s); } });
                 return "\u5df2\u70b9: " + s.label();
             }
-            public String addNet(String id, String n, String a) {
-                final Song s = netSong(id, n, a);
+            public String addNet(String id, String n, String a, String src) {
+                final Song s = netSong(id, n, a, src);
                 ui.post(new Runnable() { public void run() { addAndMaybePlay(s); } });
                 return "\u5df2\u70b9: " + s.label();
+            }
+            public String queueJson() {
+                StringBuilder sb = new StringBuilder("[");
+                List<Song> q = KtvQueue.items;
+                for (int i = 0; i < q.size(); i++) {
+                    Song s = q.get(i);
+                    if (i > 0) sb.append(',');
+                    sb.append("{\"i\":").append(i)
+                      .append(",\"cur\":").append(i == KtvQueue.cur)
+                      .append(",\"t\":\"").append(esc(s.label())).append("\"}");
+                }
+                return sb.append(']').toString();
+            }
+            public String nextSong() {
+                ui.post(new Runnable() { public void run() {
+                    Song n = KtvQueue.next();
+                    if (n != null) startPlayer();
+                    else Toast.makeText(MainActivity.this, "\u6ca1\u6709\u4e0b\u4e00\u9996\u4e86", Toast.LENGTH_SHORT).show();
+                }});
+                return "ok";
+            }
+            public String jumpSong(String is) {
+                final int i = safeInt(is, -1);
+                ui.post(new Runnable() { public void run() {
+                    if (i < 0 || i >= KtvQueue.items.size()) return;
+                    KtvQueue.cur = i;
+                    refreshQueue();
+                    startPlayer();
+                }});
+                return "ok";
+            }
+            public String delSong(String is) {
+                final int i = safeInt(is, -1);
+                ui.post(new Runnable() { public void run() {
+                    if (i < 0 || i >= KtvQueue.items.size()) return;
+                    KtvQueue.removeAt(i);
+                    if (i < KtvQueue.cur) KtvQueue.cur--;
+                    if (KtvQueue.cur >= KtvQueue.items.size()) KtvQueue.cur = Math.max(0, KtvQueue.items.size() - 1);
+                    refreshQueue();
+                }});
+                return "ok";
             }
             public String nowJson() {
                 Song c = KtvQueue.current();
@@ -166,12 +228,23 @@ public class MainActivity extends Activity {
         StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < r.size(); i++) {
             Song s = r.get(i);
-            String id = s.key.startsWith("net:") ? s.key.substring(4) : "";
+            String src = "ne", id = s.key;
+            if (s.key.startsWith("net:")) {
+                String rest = s.key.substring(4);
+                int c = rest.indexOf(':');
+                if (c > 0) { src = rest.substring(0, c); id = rest.substring(c + 1); }
+                else { id = rest; }
+            }
             if (i > 0) sb.append(',');
             sb.append("{\"id\":\"").append(esc(id)).append("\",\"n\":\"").append(esc(s.name))
-              .append("\",\"a\":\"").append(esc(s.artist)).append("\",\"t\":\"").append(esc(s.label())).append("\"}");
+              .append("\",\"a\":\"").append(esc(s.artist)).append("\",\"g\":\"").append(src)
+              .append("\",\"t\":\"").append(esc(s.name + (s.artist.length() > 0 ? "  ·  " + s.artist : ""))).append("\"}");
         }
         return sb.append(']').toString();
+    }
+
+    private static int safeInt(String v, int def) {
+        try { return Integer.parseInt(v.trim()); } catch (Exception e) { return def; }
     }
 
     private Song findByKey(String key) {
@@ -182,13 +255,15 @@ public class MainActivity extends Activity {
         return null;
     }
 
-    private Song netSong(String id, String n, String a) {
-        Song s = new Song("net:" + id);
+    private Song netSong(String id, String n, String a, String src) {
+        if (src == null || src.length() == 0) src = "ne";
+        Song s = new Song("net:" + src + ":" + id);
         s.online = true;
         s.name = n == null ? "" : n;
         s.artist = a == null ? "" : a;
-        s.netPlay = Net.BASE + "/play?id=" + id;
-        s.netLrc = Net.BASE + "/lrc?id=" + id;
+        s.srcTag = "ne".equals(src) ? "网易" : ("kw".equals(src) ? "酷我" : "酷狗");
+        s.netPlay = Net.BASE + "/play?src=" + src + "&id=" + id;
+        s.netLrc = Net.BASE + "/lrc?src=" + src + "&id=" + id;
         return s;
     }
 
@@ -245,8 +320,13 @@ public class MainActivity extends Activity {
         tvQuery = new TextView(this);
         tvQuery.setTextColor(ACC);
         tvQuery.setTextSize(20);
-        tvQuery.setGravity(Gravity.RIGHT);
-        top.addView(tvQuery);
+        tvQuery.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        tvQuery.setPadding(dp(10), dp(4), dp(10), dp(4));
+        tvQuery.setFocusable(true);
+        tvQuery.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { showKb(); }
+        });
+        top.addView(tvQuery, new LinearLayout.LayoutParams(dp(430), ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(top, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -341,6 +421,57 @@ public class MainActivity extends Activity {
 
         rootF.addView(root, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // ---------- 自带软键盘（本机没有可用输入法） ----------
+        kbBox = new LinearLayout(this);
+        kbBox.setOrientation(LinearLayout.VERTICAL);
+        kbBox.setBackgroundColor(0xF0101418);
+        kbBox.setPadding(dp(8), dp(6), dp(8), dp(8));
+        kbBox.setVisibility(View.GONE);
+        candRow = new LinearLayout(this);
+        candRow.setOrientation(LinearLayout.HORIZONTAL);
+        candRow.setPadding(0, 0, 0, dp(4));
+        HorizontalScrollView chs = new HorizontalScrollView(this);
+        chs.setHorizontalScrollBarEnabled(false);
+        chs.addView(candRow);
+        kbBox.addView(chs, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
+        String[] rows = { "1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm" };
+        for (String r : rows) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            for (int i = 0; i < r.length(); i++) {
+                final char ch = r.charAt(i);
+                TextView kv = makeKey(String.valueOf(ch), new View.OnClickListener() {
+                    public void onClick(View v) { pyType(ch); }
+                });
+                if (kbFirst == null) kbFirst = kv;
+                row.addView(kv, keyLp(1f));
+            }
+            kbBox.addView(row, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, dp(44)));
+        }
+        LinearLayout row5 = new LinearLayout(this);
+        row5.setOrientation(LinearLayout.HORIZONTAL);
+        row5.addView(makeKey("⌫ 删除", new View.OnClickListener() {
+            public void onClick(View v) { pyBackspace(); }
+        }), keyLp(2f));
+        row5.addView(makeKey("清空", new View.OnClickListener() {
+            public void onClick(View v) { q = ""; pyBuf = ""; updateCands(); refilter(); updateBar(); }
+        }), keyLp(1.5f));
+        row5.addView(makeKey("🔍 搜索", new View.OnClickListener() {
+            public void onClick(View v) { commitPinyin(); hideKb(); ui.removeCallbacks(pendingSearch); ui.postDelayed(pendingSearch, 60); }
+        }), keyLp(2f));
+        row5.addView(makeKey("收起", new View.OnClickListener() {
+            public void onClick(View v) { hideKb(); }
+        }), keyLp(1.5f));
+        kbBox.addView(row5, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        FrameLayout.LayoutParams klp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        klp.gravity = Gravity.BOTTOM;
+        rootF.addView(kbBox, klp);
+
         setContentView(rootF);
         bgv.start();
         updateTabs();
@@ -559,7 +690,9 @@ public class MainActivity extends Activity {
     private void updateBar() {
         if (tvQuery == null) return;
         String ph = (mode == 1) ? "输入歌名/歌手，搜索在线歌曲" : "输入 歌名 / 歌手 / 编号 搜索";
-        tvQuery.setText(q.length() == 0 ? ph : ("搜索: " + q));
+        String shown = q;
+        if (pyBuf.length() > 0) shown = (q.length() == 0 ? "" : q + " + ") + pyBuf + "▌";
+        tvQuery.setText(shown.length() == 0 ? ph : ("搜索: " + shown));
         String h;
         if (mode == 1) {
             h = onlineBusy ? "⏳ 正在搜索在线歌曲…"
@@ -595,7 +728,7 @@ public class MainActivity extends Activity {
             if (KtvQueue.items.isEmpty() || selQueue == 0) { area = (mode == 1) ? 1 : 0; afterArea(); }
             else move(-1);
         } else if (area == 1) {
-            area = 0; afterArea();
+            area = 0; afterArea(); showKb();
         }
     }
 
@@ -696,9 +829,227 @@ public class MainActivity extends Activity {
         if (q.length() > 0) { q = ""; refilter(); }
     }
 
+    private TextView makeKey(String label, View.OnClickListener l) {
+        TextView k = new TextView(this);
+        k.setText(label);
+        k.setTextColor(FG);
+        k.setTextSize(17);
+        k.setGravity(Gravity.CENTER);
+        k.setFocusable(true);
+        k.setClickable(true);
+        k.setFocusableInTouchMode(false);
+        StateListDrawable bg = new StateListDrawable();
+        bg.addState(new int[]{android.R.attr.state_focused}, new ColorDrawable(0xFF2F6FEB));
+        bg.addState(new int[]{}, new ColorDrawable(0xFF1B2128));
+        k.setBackground(bg);
+        k.setPadding(dp(2), dp(2), dp(2), dp(2));
+        k.setOnClickListener(l);
+        return k;
+    }
+
+    private LinearLayout.LayoutParams keyLp(float w) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.MATCH_PARENT, w);
+        lp.setMargins(dp(2), dp(2), dp(2), dp(2));
+        return lp;
+    }
+
+    private void showKb() {
+        if (kbBox == null) return;
+        kbBox.setVisibility(View.VISIBLE);
+        kbBox.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
+        if (kbFirst != null) kbFirst.requestFocus();
+        area = 0;
+        afterArea();
+    }
+
+    private void hideKb() {
+        if (kbBox == null) return;
+        kbBox.setVisibility(View.GONE);
+        candRow = new LinearLayout(this);
+        candRow.setOrientation(LinearLayout.HORIZONTAL);
+        candRow.setPadding(0, 0, 0, dp(4));
+        HorizontalScrollView chs = new HorizontalScrollView(this);
+        chs.setHorizontalScrollBarEnabled(false);
+        chs.addView(candRow);
+        kbBox.addView(chs, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(52)));
+        tvQuery.requestFocus();
+        area = 2;
+        afterArea();
+    }
+
+    // ---------- 拼音候选（内置词库 assets/py.txt） ----------
+    private void loadPy() {
+        java.io.InputStream in = null;
+        String src = "none";
+        try { in = new java.io.FileInputStream("/data/local/py.txt"); src = "file"; } catch (Throwable t1) {}
+        if (in == null) {
+            try { in = getAssets().open("assets/py.txt"); src = "assets"; } catch (Throwable t1) {}
+        }
+        if (in == null) {
+            try { in = getAssets().open("py.txt"); src = "assets2"; } catch (Throwable t1) {}
+        }
+        try {
+            if (in == null) throw new java.io.IOException("no dict");
+            java.io.BufferedReader br = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(in, "UTF-8"));
+            java.util.ArrayList<String> t = new java.util.ArrayList<String>(96000);
+            String line;
+            while ((line = br.readLine()) != null) {
+                if (line.length() > 2) t.add(line);
+            }
+            br.close();
+            pyLines = t.toArray(new String[0]);
+            pyReady = true;
+            dbg("py loaded " + pyLines.length + " from " + src);
+        } catch (Throwable e) {
+            pyLines = new String[0];
+            pyReady = true;
+            dbg("py load fail " + src + " " + e);
+        }
+    }
+
+    private void dbg(String m) {
+        Log.d("KTV", m);
+        try {
+            java.io.FileWriter w = new java.io.FileWriter("/sdcard/ktvpy.log", true);
+            w.write(m + "\n");
+            w.close();
+        } catch (Throwable t) { }
+    }
+
+    private void pyType(char c) {
+        pyBuf = pyBuf + c;
+        updateBar();
+        updateCands();
+    }
+
+    private void pyBackspace() {
+        if (pyBuf.length() > 0) {
+            pyBuf = pyBuf.substring(0, pyBuf.length() - 1);
+            updateBar();
+            updateCands();
+        } else {
+            backspace();
+        }
+    }
+
+    private void commitPinyin() {
+        if (pyBuf.length() == 0) return;
+        q = q + pyBuf;
+        pyBuf = "";
+        updateBar();
+        updateCands();
+        refilter();
+    }
+
+    private void pickWord(String w) {
+        q = q + w;
+        pyBuf = "";
+        updateBar();
+        updateCands();
+        refilter();
+    }
+
+    private int lowerBound(String prefix) {
+        String[] a = pyLines;
+        int lo = 0, hi = a.length;
+        while (lo < hi) {
+            int mid = (lo + hi) >>> 1;
+            if (a[mid].compareTo(prefix) < 0) lo = mid + 1;
+            else hi = mid;
+        }
+        return lo;
+    }
+
+    private void updateCands() {
+        if (candRow == null) return;
+        candRow.removeAllViews();
+        if (pyBuf.length() == 0) return;
+        if (!pyReady) {
+            candRow.addView(candChip("词库加载中…", null));
+            return;
+        }
+        String[] a = pyLines;
+        int i = lowerBound(pyBuf);
+        java.util.ArrayList<String> hits = new java.util.ArrayList<String>();
+        java.util.HashSet<String> seen = new java.util.HashSet<String>();
+        while (i < a.length && hits.size() < 40) {
+            String line = a[i];
+            if (!line.startsWith(pyBuf)) break;
+            int tab = line.indexOf('\t');
+            if (tab > 0) {
+                String w = line.substring(tab + 1);
+                if (w.length() <= 4 && seen.add(w)) hits.add(w);
+            }
+            i++;
+        }
+        java.util.Collections.sort(hits, new java.util.Comparator<String>() {
+            public int compare(String x, String y) {
+                if (x.length() != y.length()) return x.length() - y.length();
+                return x.compareTo(y);
+            }
+        });
+        int n = 0;
+        for (String w : hits) {
+            if (n >= 14) break;
+            final String ww = w;
+            candRow.addView(candChip(ww, new View.OnClickListener() {
+                public void onClick(View v) { pickWord(ww); }
+            }));
+            n++;
+        }
+        candRow.addView(candChip("🔍 直接搜 " + pyBuf, new View.OnClickListener() {
+            public void onClick(View v) { String t = pyBuf; pyBuf = ""; q = q + t; updateBar(); updateCands(); refilter(); }
+        }));
+        Log.d("KTV", "py=" + pyBuf + " cands=" + n);
+    }
+
+    private TextView candChip(String label, View.OnClickListener l) {
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextColor(FG);
+        t.setTextSize(18);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(12), dp(6), dp(12), dp(6));
+        t.setBackgroundColor(0xFF232B33);
+        t.setFocusable(true);
+        t.setClickable(true);
+        if (l != null) t.setOnClickListener(l);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        lp.setMargins(dp(3), dp(2), dp(3), dp(2));
+        t.setLayoutParams(lp);
+        return t;
+    }
+
     // ---------- 按键 ----------
 
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
+        // 软键盘打开时：方向键交给系统做焦点移动，确认键=点击当前键，字母/数字=输入
+        if (kbBox != null && kbBox.getVisibility() == View.VISIBLE) {
+            if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                switch (e.getKeyCode()) {
+                    case KeyEvent.KEYCODE_BACK:
+                        hideKb(); return true;
+                    case KeyEvent.KEYCODE_MENU:
+                        hideKb(); return true;
+                    case KeyEvent.KEYCODE_DPAD_CENTER:
+                    case KeyEvent.KEYCODE_ENTER:
+                    case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                    case KeyEvent.KEYCODE_BUTTON_A: {
+                        View f = getCurrentFocus();
+                        if (f != null && f != tvQuery) { f.performClick(); return true; }
+                        break;
+                    }
+                    default: break;
+                }
+                char kc = printable(e);
+                if (kc != 0) { type(kc); return true; }
+            }
+            return super.dispatchKeyEvent(e);
+        }
         if (e.getAction() == KeyEvent.ACTION_DOWN) {
             Log.d("KTV", "key=" + e.getKeyCode() + " area=" + area + " chip=" + selChip + " song=" + selSong);
             switch (e.getKeyCode()) {
@@ -710,7 +1061,9 @@ public class MainActivity extends Activity {
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 case KeyEvent.KEYCODE_BUTTON_A: ok(); return true;
-                case KeyEvent.KEYCODE_BACK: back(); return true;
+                case KeyEvent.KEYCODE_BACK:
+                    if (kbBox != null && kbBox.getVisibility() == View.VISIBLE) { hideKb(); return true; }
+                    back(); return true;
                 case KeyEvent.KEYCODE_DEL: backspace(); return true;
                 case KeyEvent.KEYCODE_MENU:
                     if (mode == 0) reload();

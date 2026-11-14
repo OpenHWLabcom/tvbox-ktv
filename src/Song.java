@@ -15,6 +15,7 @@ public class Song {
     public boolean online = false;
     public String netPlay = null; // 播放地址(代理 /play)
     public String netLrc = null;  // 歌词地址(代理 /lrc)
+    public String srcTag = "";    // 音源标签: 网易/酷我/酷狗
 
     public Song(String key) { this.key = key; }
 
@@ -51,7 +52,7 @@ public class Song {
     }
 
     public String tag() {
-        if (online) return "在线";
+        if (online) return "";
         if (hasBoth()) return "原/伴";
         if (acc != null) return "伴奏";
         if (orig != null) return "原唱";

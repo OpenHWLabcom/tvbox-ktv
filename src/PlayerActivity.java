@@ -220,6 +220,7 @@ public class PlayerActivity extends Activity {
         });
         vv.setOnErrorListener(new MediaPlayer.OnErrorListener() {
             public boolean onError(MediaPlayer mp, int what, int extra) {
+                Log.d("KTV", "player error what=" + what + " extra=" + extra + " url=" + lastUrl);
                 Toast.makeText(PlayerActivity.this, "播放出错，跳过", Toast.LENGTH_SHORT).show();
                 h.postDelayed(new Runnable() { public void run() { nextOrFinish(); } }, 800);
                 return true;
@@ -275,11 +276,54 @@ public class PlayerActivity extends Activity {
         if (cur.online) { lrc = new Lrc(); loadOnlineLrc(cur); if (ly != null) ly.setLrc(lrc); }
         else { lrc = Lrc.load(cur.lrc); if (ly != null) ly.setLrc(lrc); }
 
-        try { vv.setVideoPath(path); } catch (Exception e) {
-            Toast.makeText(this, "打不开: " + path, Toast.LENGTH_LONG).show();
-            h.postDelayed(new Runnable() { public void run() { nextOrFinish(); } }, 800);
+        if (cur.online) {
+            final String p0 = path;
+            new Thread(new Runnable() {
+                public void run() {
+                    final String real = resolveUrl(p0);
+                    h.post(new Runnable() {
+                        public void run() {
+                            lastUrl = real;
+                            Log.d("KTV", "play url " + real);
+                            try { vv.setVideoPath(real); } catch (Exception e) {
+                                Toast.makeText(PlayerActivity.this, "打不开: " + real, Toast.LENGTH_LONG).show();
+                                h.postDelayed(new Runnable() { public void run() { nextOrFinish(); } }, 800);
+                            }
+                        }
+                    });
+                }
+            }).start();
+        } else {
+            lastUrl = path;
+            try { vv.setVideoPath(path); } catch (Exception e) {
+                Toast.makeText(this, "打不开: " + path, Toast.LENGTH_LONG).show();
+                h.postDelayed(new Runnable() { public void run() { nextOrFinish(); } }, 800);
+            }
         }
         showHud();
+    }
+
+    private String lastUrl = "";
+
+    /** 跟随 302 拿到最终音频直链（旧版 MediaPlayer 对跨协议重定向支持差） */
+    private static String resolveUrl(String u) {
+        java.net.HttpURLConnection c = null;
+        try {
+            for (int i = 0; i < 4; i++) {
+                c = (java.net.HttpURLConnection) new java.net.URL(u).openConnection();
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(8000);
+                c.setInstanceFollowRedirects(false);
+                int code = c.getResponseCode();
+                String loc = c.getHeaderField("Location");
+                c.disconnect();
+                if (code >= 300 && code < 400 && loc != null) { u = loc; continue; }
+                return u;
+            }
+        } catch (Throwable t) {
+            Log.d("KTV", "resolve fail " + t);
+        } finally { if (c != null) c.disconnect(); }
+        return u;
     }
 
     private void loadOnlineLrc(final Song s) {
